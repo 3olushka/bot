@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
 @Service
 public class OpenAiVisionService {
 
-    private static final Pattern DATE_PATTERN = Pattern.compile("\\b(0[1-9]|[12]\\d|3[01])\\.(0[1-9]|1[0-2])\\b");
+    private static final Pattern DATE_PATTERN = Pattern.compile("\\b(0?[1-9]|[12]\\d|3[01])\\.(0?[1-9]|1[0-2])\\b");
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -51,7 +51,7 @@ public class OpenAiVisionService {
                 "messages", List.of(
                         Map.of("role", "user", "content", List.of(
                                 Map.of("type", "text",
-                                        "text", "Find a date in DD.MM format on this image. Return ONLY the date in DD.MM format (e.g., 05.01, 23.12). Nothing else."),
+                                        "text", "Find a date in D.MM or DD.MM format on this image. Return ONLY the date as day.month (e.g., 1.02, 05.01, 23.12). Nothing else."),
                                 Map.of("type", "image_url",
                                         "image_url", Map.of("url", dataUri))
                         ))
@@ -68,7 +68,9 @@ public class OpenAiVisionService {
 
             Matcher matcher = DATE_PATTERN.matcher(content);
             if (matcher.find()) {
-                return matcher.group();
+                String day = String.format("%02d", Integer.parseInt(matcher.group(1)));
+                String month = String.format("%02d", Integer.parseInt(matcher.group(2)));
+                return day + "." + month;
             }
             throw new RuntimeException("Could not extract a valid DD.MM date from OpenAI response: " + content);
         } catch (RuntimeException e) {
