@@ -17,6 +17,9 @@ import org.springframework.core.io.ResourceLoader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.GeneralSecurityException;
 import java.util.List;
 
@@ -44,9 +47,11 @@ public class GoogleDriveConfig {
                 resourceLoader.getResource(credentialsPath).getInputStream());
         GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(jsonFactory, reader);
 
+        File tokensDir = prepareTokensDir();
+
         GoogleAuthorizationCodeFlow flow = new GoogleAuthorizationCodeFlow.Builder(
                 httpTransport, jsonFactory, clientSecrets, List.of(DriveScopes.DRIVE_FILE))
-                .setDataStoreFactory(new FileDataStoreFactory(new File(tokensPath)))
+                .setDataStoreFactory(new FileDataStoreFactory(tokensDir))
                 .setAccessType("offline")
                 .build();
 
@@ -59,5 +64,30 @@ public class GoogleDriveConfig {
         return new Drive.Builder(httpTransport, jsonFactory, credential)
                 .setApplicationName("telegram-business")
                 .build();
+    }
+
+    private File prepareTokensDir() throws IOException {
+        Path source = Path.of(tokensPath);
+        File sourceFile = source.toFile();
+
+        // If tokens path is already writable, use it directly (local dev)
+        if (sourceFile.isDirectory() && sourceFile.canWrite()) {
+            return sourceFile;
+        }
+
+        // Copy StoredCredential to a writable /tmp directory (server/Render)
+        Path tmpTokens = Path.of(System.getProperty("java.io.tmpdir"), "google-tokens");
+        Files.createDirectories(tmpTokens);
+
+        // tokensPath might be a directory containing StoredCredential, or the file itself
+        Path storedCredential = sourceFile.isDirectory()
+                ? source.resolve("StoredCredential")
+                : source;
+
+        if (Files.exists(storedCredential)) {
+            Files.copy(storedCredential, tmpTokens.resolve("StoredCredential"), StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        return tmpTokens.toFile();
     }
 }
