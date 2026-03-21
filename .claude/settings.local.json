@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "WebSearch",
+      "WebFetch(domain:rubenlagus.github.io)",
+      "WebFetch(domain:developers.google.com)",
+      "Bash(mvn compile:*)",
+      "Bash(\"/c/Program Files/JetBrains/IntelliJ IDEA Community Edition 2025.2.4/plugins/maven/lib/maven3/bin/mvn\" -f F:/telegram-business/pom.xml compile)"
+    ]
+  }
+}

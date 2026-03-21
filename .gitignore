@@ -1,0 +1,29 @@
+target/
+credentials/
+
+### IDE ###
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+.project
+.classpath
+.settings/
+*.code-workspace
+
+### OS ###
+.DS_Store
+Thumbs.db
+desktop.ini
+
+### Maven ###
+*.jar
+*.war
+*.ear
+
+### Logs ###
+*.log
+
+### Environment ###
+.env
