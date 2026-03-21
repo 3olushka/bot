@@ -39,21 +39,21 @@
             <version>7.10.0</version>
         </dependency>
 
-        <!-- Google Drive API -->
+        <!-- Google Drive API + OAuth2 -->
         <dependency>
             <groupId>com.google.apis</groupId>
             <artifactId>google-api-services-drive</artifactId>
             <version>v3-rev20260220-2.0.0</version>
         </dependency>
         <dependency>
-            <groupId>com.google.auth</groupId>
-            <artifactId>google-auth-library-oauth2-http</artifactId>
-            <version>1.19.0</version>
+            <groupId>com.google.oauth-client</groupId>
+            <artifactId>google-oauth-client-jetty</artifactId>
+            <version>1.36.0</version>
         </dependency>
         <dependency>
             <groupId>com.google.http-client</groupId>
             <artifactId>google-http-client-gson</artifactId>
-            <version>1.44.1</version>
+            <version>1.45.1</version>
         </dependency>
 
         <!-- Lombok -->
