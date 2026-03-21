@@ -13,4 +13,5 @@ google:
   drive:
     credentials-path: ${GOOGLE_CREDENTIALS_PATH:classpath:google-oauth-credentials.json}
     tokens-path: ${GOOGLE_TOKENS_PATH:tokens}
+    refresh-token: ${GOOGLE_REFRESH_TOKEN:}
     root-folder-name: sales

@@ -4,11 +4,13 @@ import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.extensions.jetty.auth.oauth2.LocalServerReceiver;
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
 import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets;
+import com.google.api.client.googleapis.auth.oauth2.GoogleCredential;
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.util.store.FileDataStoreFactory;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.DriveScopes;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,12 +19,10 @@ import org.springframework.core.io.ResourceLoader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.security.GeneralSecurityException;
 import java.util.List;
 
+@Slf4j
 @Configuration
 public class GoogleDriveConfig {
 
@@ -31,6 +31,9 @@ public class GoogleDriveConfig {
 
     @Value("${google.drive.tokens-path}")
     private String tokensPath;
+
+    @Value("${google.drive.refresh-token:}")
+    private String refreshToken;
 
     private final ResourceLoader resourceLoader;
 
@@ -47,47 +50,42 @@ public class GoogleDriveConfig {
                 resourceLoader.getResource(credentialsPath).getInputStream());
         GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(jsonFactory, reader);
 
-        File tokensDir = prepareTokensDir();
+        Credential credential;
 
-        GoogleAuthorizationCodeFlow flow = new GoogleAuthorizationCodeFlow.Builder(
-                httpTransport, jsonFactory, clientSecrets, List.of(DriveScopes.DRIVE_FILE))
-                .setDataStoreFactory(new FileDataStoreFactory(tokensDir))
-                .setAccessType("offline")
-                .build();
+        if (refreshToken != null && !refreshToken.isBlank()) {
+            // Server mode: use refresh token from env var
+            credential = new GoogleCredential.Builder()
+                    .setTransport(httpTransport)
+                    .setJsonFactory(jsonFactory)
+                    .setClientSecrets(clientSecrets)
+                    .build()
+                    .setRefreshToken(refreshToken);
+            log.info("Using refresh token from environment variable");
+        } else {
+            // Local mode: browser-based OAuth flow
+            GoogleAuthorizationCodeFlow flow = new GoogleAuthorizationCodeFlow.Builder(
+                    httpTransport, jsonFactory, clientSecrets, List.of(DriveScopes.DRIVE_FILE))
+                    .setDataStoreFactory(new FileDataStoreFactory(new File(tokensPath)))
+                    .setAccessType("offline")
+                    .build();
 
-        Credential credential = flow.loadCredential("user");
-        if (credential == null || (credential.getRefreshToken() == null && credential.getExpiresInSeconds() != null && credential.getExpiresInSeconds() <= 0)) {
-            var receiver = new LocalServerReceiver.Builder().setPort(8888).build();
-            credential = new com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInstalledApp(flow, receiver).authorize("user");
+            credential = flow.loadCredential("user");
+            if (credential == null || (credential.getRefreshToken() == null
+                    && credential.getExpiresInSeconds() != null
+                    && credential.getExpiresInSeconds() <= 0)) {
+                var receiver = new LocalServerReceiver.Builder().setPort(8888).build();
+                credential = new com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInstalledApp(flow, receiver).authorize("user");
+            }
+
+            if (credential.getRefreshToken() != null) {
+                log.info("=== REFRESH TOKEN (save this for server deployment) ===");
+                log.info("{}", credential.getRefreshToken());
+                log.info("=== END REFRESH TOKEN ===");
+            }
         }
 
         return new Drive.Builder(httpTransport, jsonFactory, credential)
                 .setApplicationName("telegram-business")
                 .build();
-    }
-
-    private File prepareTokensDir() throws IOException {
-        Path source = Path.of(tokensPath);
-        File sourceFile = source.toFile();
-
-        // If tokens path is already writable, use it directly (local dev)
-        if (sourceFile.isDirectory() && sourceFile.canWrite()) {
-            return sourceFile;
-        }
-
-        // Copy StoredCredential to a writable /tmp directory (server/Render)
-        Path tmpTokens = Path.of(System.getProperty("java.io.tmpdir"), "google-tokens");
-        Files.createDirectories(tmpTokens);
-
-        // tokensPath might be a directory containing StoredCredential, or the file itself
-        Path storedCredential = sourceFile.isDirectory()
-                ? source.resolve("StoredCredential")
-                : source;
-
-        if (Files.exists(storedCredential)) {
-            Files.copy(storedCredential, tmpTokens.resolve("StoredCredential"), StandardCopyOption.REPLACE_EXISTING);
-        }
-
-        return tmpTokens.toFile();
     }
 }
