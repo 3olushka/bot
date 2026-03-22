@@ -71,8 +71,13 @@ public class ImageBot implements SpringLongPollingBot, LongPollingSingleThreadUp
             String fileName = telegramFile.getFilePath().substring(
                     telegramFile.getFilePath().lastIndexOf('/') + 1);
 
-            String result = orchestrator.processImage(imageBytes, fileName);
-            sendText(chatId, result);
+            orchestrator.processImage(imageBytes, fileName)
+                    .thenAccept(result -> sendText(chatId, result))
+                    .exceptionally(ex -> {
+                        log.error("Async processing failed for chat {}", chatId, ex);
+                        sendText(chatId, "Error: " + ex.getMessage());
+                        return null;
+                    });
         } catch (Exception e) {
             log.error("Error handling photo for chat {}", chatId, e);
             sendText(chatId, "Error: " + e.getMessage());

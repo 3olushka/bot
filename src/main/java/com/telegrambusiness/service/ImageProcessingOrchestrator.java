@@ -2,9 +2,11 @@ package com.telegrambusiness.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.Year;
+import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @Service
@@ -14,7 +16,8 @@ public class ImageProcessingOrchestrator {
     private final OpenAiVisionService openAiVisionService;
     private final GoogleDriveService googleDriveService;
 
-    public String processImage(byte[] imageBytes, String originalFileName) {
+    @Async
+    public CompletableFuture<String> processImage(byte[] imageBytes, String originalFileName) {
         try {
             log.info("Processing image '{}'", originalFileName);
 
@@ -30,15 +33,16 @@ public class ImageProcessingOrchestrator {
             if (dotIndex >= 0) {
                 extension = originalFileName.substring(dotIndex);
             }
-            String fileName = "file_" + day + "_" + month + extension;
+            String basePrefix = "file_" + day + "_" + month;
 
-            String fileId = googleDriveService.uploadImage(imageBytes, fileName, month);
+            GoogleDriveService.UploadResult result = googleDriveService.uploadImage(imageBytes, basePrefix, extension, month);
 
             String folder = Year.now().getValue() + "-" + month;
-            return "Done! Date: " + date + ", uploaded as " + fileName + " to /sales/" + folder + " (fileId: " + fileId + ")";
+            return CompletableFuture.completedFuture(
+                    "Done! Date: " + date + ", uploaded as " + result.fileName() + " to /sales/" + folder + " (fileId: " + result.fileId() + ")");
         } catch (Exception e) {
             log.error("Failed to process image '{}'", originalFileName, e);
-            return "Error processing image: " + e.getMessage();
+            return CompletableFuture.completedFuture("Error processing image: " + e.getMessage());
         }
     }
 }
