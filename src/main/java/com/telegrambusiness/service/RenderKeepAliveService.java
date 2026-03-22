@@ -1,8 +1,10 @@
 package com.telegrambusiness.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -11,7 +13,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 
 @Slf4j
-@Service
+@Controller
 public class RenderKeepAliveService {
 
     private static final String RENDER_URL = "https://bot-ehk9.onrender.com";
@@ -20,7 +22,12 @@ public class RenderKeepAliveService {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
-    @Scheduled(fixedRate = 600_000)
+    @GetMapping("/")
+    public ResponseEntity<String> health() {
+        return ResponseEntity.ok("OK");
+    }
+
+    @Scheduled(fixedRate = 300_000)
     public void pingRender() {
         try {
             HttpRequest request = HttpRequest.newBuilder()
