@@ -33,6 +33,7 @@ public class GoogleDriveService {
     private static final long RETRY_DELAY_MS = 2000;
 
     private final ConcurrentHashMap<String, Object> folderLocks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Integer> counterCache = new ConcurrentHashMap<>();
 
     public UploadResult uploadImage(byte[] imageBytes, String basePrefix, String extension, String month) throws IOException {
         String salesFolderId = findOrCreateFolder(rootFolderName, null);
@@ -60,6 +61,8 @@ public class GoogleDriveService {
     }
 
     private String findNextCounter(String basePrefix, String folderId) throws IOException {
+        String cacheKey = folderId + ":" + basePrefix;
+
         String query = "name contains '" + basePrefix + "_' and '" + folderId + "' in parents and trashed=false";
 
         FileList result = retry(() -> driveService.files().list()
@@ -69,7 +72,7 @@ public class GoogleDriveService {
                 .setPageSize(100)
                 .execute());
 
-        int maxCounter = -1;
+        int driveMax = -1;
         Pattern pattern = Pattern.compile(Pattern.quote(basePrefix) + "_(\\d{2})\\.");
 
         if (result.getFiles() != null) {
@@ -77,14 +80,18 @@ public class GoogleDriveService {
                 Matcher matcher = pattern.matcher(file.getName());
                 if (matcher.find()) {
                     int counter = Integer.parseInt(matcher.group(1));
-                    if (counter > maxCounter) {
-                        maxCounter = counter;
+                    if (counter > driveMax) {
+                        driveMax = counter;
                     }
                 }
             }
         }
 
-        return String.format("%02d", maxCounter + 1);
+        int localMax = counterCache.getOrDefault(cacheKey, -1);
+        int next = Math.max(driveMax, localMax) + 1;
+        counterCache.put(cacheKey, next);
+
+        return String.format("%02d", next);
     }
 
     private String findOrCreateFolder(String name, String parentId) throws IOException {

@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Base64;
@@ -19,6 +20,8 @@ import java.util.regex.Pattern;
 public class OpenAiVisionService {
 
     private static final Pattern DATE_PATTERN = Pattern.compile("\\b(0?[1-9]|[12]\\d|3[01])\\.(0?[1-9]|1[0-2])\\b");
+    private static final int MAX_RETRIES = 3;
+    private static final long RETRY_DELAY_MS = 2000;
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -59,7 +62,7 @@ public class OpenAiVisionService {
         );
 
         String url = baseUrl + "/chat/completions";
-        String responseBody = restTemplate.postForObject(url, request, String.class);
+        String responseBody = postWithRetry(url, request);
 
         try {
             JsonNode root = objectMapper.readTree(responseBody);
@@ -78,5 +81,26 @@ public class OpenAiVisionService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to parse OpenAI response", e);
         }
+    }
+
+    private String postWithRetry(String url, Map<String, Object> request) {
+        ResourceAccessException lastException = null;
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                return restTemplate.postForObject(url, request, String.class);
+            } catch (ResourceAccessException e) {
+                lastException = e;
+                log.warn("OpenAI API call failed (attempt {}/{}): {}", attempt, MAX_RETRIES, e.getMessage());
+                if (attempt < MAX_RETRIES) {
+                    try {
+                        Thread.sleep(RETRY_DELAY_MS * attempt);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw e;
+                    }
+                }
+            }
+        }
+        throw lastException;
     }
 }
