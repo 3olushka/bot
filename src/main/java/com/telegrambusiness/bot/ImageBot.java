@@ -10,6 +10,7 @@ import org.telegram.telegrambots.longpolling.starter.SpringLongPollingBot;
 import org.telegram.telegrambots.longpolling.util.LongPollingSingleThreadUpdateConsumer;
 import org.telegram.telegrambots.meta.api.methods.GetFile;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.Document;
 import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.generics.TelegramClient;
@@ -44,10 +45,19 @@ public class ImageBot implements SpringLongPollingBot, LongPollingSingleThreadUp
         return this;
     }
 
+    private static final List<String> IMAGE_MIME_PREFIXES = List.of("image/");
+
     @Override
     public void consume(Update update) {
-        if (update.hasMessage() && update.getMessage().hasPhoto()) {
+        if (!update.hasMessage()) return;
+
+        if (update.getMessage().hasPhoto()) {
             handlePhoto(update);
+        } else if (update.getMessage().hasDocument()) {
+            Document doc = update.getMessage().getDocument();
+            if (doc.getMimeType() != null && IMAGE_MIME_PREFIXES.stream().anyMatch(doc.getMimeType()::startsWith)) {
+                handleDocument(update);
+            }
         }
     }
 
@@ -80,6 +90,36 @@ public class ImageBot implements SpringLongPollingBot, LongPollingSingleThreadUp
                     });
         } catch (Exception e) {
             log.error("Error handling photo for chat {}", chatId, e);
+            sendText(chatId, "Error: " + e.getMessage());
+        }
+    }
+
+    private void handleDocument(Update update) {
+        long chatId = update.getMessage().getChatId();
+        try {
+            Document doc = update.getMessage().getDocument();
+
+            GetFile getFile = new GetFile(doc.getFileId());
+            org.telegram.telegrambots.meta.api.objects.File telegramFile = telegramClient.execute(getFile);
+
+            String fileUrl = "https://api.telegram.org/file/bot" + botToken + "/" + telegramFile.getFilePath();
+            byte[] imageBytes;
+            try (InputStream is = URI.create(fileUrl).toURL().openStream()) {
+                imageBytes = is.readAllBytes();
+            }
+
+            String fileName = doc.getFileName() != null ? doc.getFileName() : telegramFile.getFilePath().substring(
+                    telegramFile.getFilePath().lastIndexOf('/') + 1);
+
+            orchestrator.processImage(imageBytes, fileName)
+                    .thenAccept(result -> sendText(chatId, result))
+                    .exceptionally(ex -> {
+                        log.error("Async processing failed for chat {}", chatId, ex);
+                        sendText(chatId, "Error: " + ex.getMessage());
+                        return null;
+                    });
+        } catch (Exception e) {
+            log.error("Error handling document for chat {}", chatId, e);
             sendText(chatId, "Error: " + e.getMessage());
         }
     }

@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.time.Year;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -31,26 +32,31 @@ public class GoogleDriveService {
     private static final int MAX_RETRIES = 3;
     private static final long RETRY_DELAY_MS = 2000;
 
+    private final ConcurrentHashMap<String, Object> folderLocks = new ConcurrentHashMap<>();
+
     public UploadResult uploadImage(byte[] imageBytes, String basePrefix, String extension, String month) throws IOException {
         String salesFolderId = findOrCreateFolder(rootFolderName, null);
         String monthFolderName = Year.now().getValue() + "-" + month;
         String monthFolderId = findOrCreateFolder(monthFolderName, salesFolderId);
 
-        String counter = findNextCounter(basePrefix, monthFolderId);
-        String fileName = basePrefix + "_" + counter + extension;
+        Object lock = folderLocks.computeIfAbsent(monthFolderId, k -> new Object());
+        synchronized (lock) {
+            String counter = findNextCounter(basePrefix, monthFolderId);
+            String fileName = basePrefix + "_" + counter + extension;
 
-        File fileMetadata = new File();
-        fileMetadata.setName(fileName);
-        fileMetadata.setParents(List.of(monthFolderId));
+            File fileMetadata = new File();
+            fileMetadata.setName(fileName);
+            fileMetadata.setParents(List.of(monthFolderId));
 
-        ByteArrayContent content = new ByteArrayContent("image/jpeg", imageBytes);
+            ByteArrayContent content = new ByteArrayContent("image/jpeg", imageBytes);
 
-        File uploaded = retry(() -> driveService.files().create(fileMetadata, content)
-                .setFields("id, name")
-                .execute());
+            File uploaded = retry(() -> driveService.files().create(fileMetadata, content)
+                    .setFields("id, name")
+                    .execute());
 
-        log.info("Uploaded file '{}' to Drive folder '{}', fileId={}", fileName, monthFolderName, uploaded.getId());
-        return new UploadResult(uploaded.getId(), fileName);
+            log.info("Uploaded file '{}' to Drive folder '{}', fileId={}", fileName, monthFolderName, uploaded.getId());
+            return new UploadResult(uploaded.getId(), fileName);
+        }
     }
 
     private String findNextCounter(String basePrefix, String folderId) throws IOException {
