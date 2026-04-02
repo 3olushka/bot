@@ -1,6 +1,5 @@
 package com.telegrambusiness.config;
 
-import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.extensions.jetty.auth.oauth2.LocalServerReceiver;
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
 import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets;
@@ -10,6 +9,9 @@ import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.util.store.FileDataStoreFactory;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.DriveScopes;
+import com.google.auth.http.HttpCredentialsAdapter;
+import com.google.auth.oauth2.GoogleCredentials;
+import com.google.auth.oauth2.ServiceAccountCredentials;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -29,6 +31,9 @@ public class GoogleDriveConfig {
     @Value("${google.drive.credentials-path}")
     private String credentialsPath;
 
+    @Value("${google.drive.service-account-path:}")
+    private String serviceAccountPath;
+
     @Value("${google.drive.tokens-path}")
     private String tokensPath;
 
@@ -46,42 +51,59 @@ public class GoogleDriveConfig {
         var httpTransport = GoogleNetHttpTransport.newTrustedTransport();
         var jsonFactory = GsonFactory.getDefaultInstance();
 
+        // 1. Service account mode (recommended — tokens never expire)
+        if (serviceAccountPath != null && !serviceAccountPath.isBlank()) {
+            var resource = resourceLoader.getResource(serviceAccountPath);
+            if (resource.exists()) {
+                GoogleCredentials credentials = ServiceAccountCredentials
+                        .fromStream(resource.getInputStream())
+                        .createScoped(List.of(DriveScopes.DRIVE));
+                credentials.refreshIfExpired();
+                log.info("Using service account authentication (tokens auto-refresh, never expire)");
+                return new Drive.Builder(httpTransport, jsonFactory, new HttpCredentialsAdapter(credentials))
+                        .setApplicationName("telegram-business")
+                        .build();
+            }
+            log.warn("Service account file not found at '{}', falling back to OAuth", serviceAccountPath);
+        }
+
+        // 2. OAuth refresh token mode (server — can expire if GCP project is in Testing mode)
         var reader = new InputStreamReader(
                 resourceLoader.getResource(credentialsPath).getInputStream());
         GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(jsonFactory, reader);
 
-        Credential credential;
-
         if (refreshToken != null && !refreshToken.isBlank()) {
-            // Server mode: use refresh token from env var
-            credential = new GoogleCredential.Builder()
+            var credential = new GoogleCredential.Builder()
                     .setTransport(httpTransport)
                     .setJsonFactory(jsonFactory)
                     .setClientSecrets(clientSecrets)
                     .build()
                     .setRefreshToken(refreshToken);
             log.info("Using refresh token from environment variable");
-        } else {
-            // Local mode: browser-based OAuth flow
-            GoogleAuthorizationCodeFlow flow = new GoogleAuthorizationCodeFlow.Builder(
-                    httpTransport, jsonFactory, clientSecrets, List.of(DriveScopes.DRIVE_FILE))
-                    .setDataStoreFactory(new FileDataStoreFactory(new File(tokensPath)))
-                    .setAccessType("offline")
+            return new Drive.Builder(httpTransport, jsonFactory, credential)
+                    .setApplicationName("telegram-business")
                     .build();
+        }
 
-            credential = flow.loadCredential("user");
-            if (credential == null || (credential.getRefreshToken() == null
-                    && credential.getExpiresInSeconds() != null
-                    && credential.getExpiresInSeconds() <= 0)) {
-                var receiver = new LocalServerReceiver.Builder().setPort(8888).build();
-                credential = new com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInstalledApp(flow, receiver).authorize("user");
-            }
+        // 3. Local browser OAuth flow (development)
+        GoogleAuthorizationCodeFlow flow = new GoogleAuthorizationCodeFlow.Builder(
+                httpTransport, jsonFactory, clientSecrets, List.of(DriveScopes.DRIVE_FILE))
+                .setDataStoreFactory(new FileDataStoreFactory(new File(tokensPath)))
+                .setAccessType("offline")
+                .build();
 
-            if (credential.getRefreshToken() != null) {
-                log.info("=== REFRESH TOKEN (save this for server deployment) ===");
-                log.info("{}", credential.getRefreshToken());
-                log.info("=== END REFRESH TOKEN ===");
-            }
+        var credential = flow.loadCredential("user");
+        if (credential == null || (credential.getRefreshToken() == null
+                && credential.getExpiresInSeconds() != null
+                && credential.getExpiresInSeconds() <= 0)) {
+            var receiver = new LocalServerReceiver.Builder().setPort(8888).build();
+            credential = new com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInstalledApp(flow, receiver).authorize("user");
+        }
+
+        if (credential.getRefreshToken() != null) {
+            log.info("=== REFRESH TOKEN (save this for server deployment) ===");
+            log.info("{}", credential.getRefreshToken());
+            log.info("=== END REFRESH TOKEN ===");
         }
 
         return new Drive.Builder(httpTransport, jsonFactory, credential)
