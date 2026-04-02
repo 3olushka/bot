@@ -12,7 +12,7 @@ openai:
 google:
   drive:
     credentials-path: ${GOOGLE_CREDENTIALS_PATH:classpath:google-oauth-credentials.json}
-    service-account-path: ${GOOGLE_SERVICE_ACCOUNT_PATH:classpath:google-service-account.json}
+    service-account-path: ${GOOGLE_SERVICE_ACCOUNT_PATH:}
     tokens-path: ${GOOGLE_TOKENS_PATH:tokens}
     refresh-token: ${GOOGLE_REFRESH_TOKEN:}
     root-folder-name: sales
